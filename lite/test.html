@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QMT HTTP Bridge API Tester</title>
+<style>
+body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;max-width:1100px;margin:32px auto;padding:0 18px;background:#f7f8fa;color:#1f2328}h1{margin-bottom:8px}.muted{color:#667085}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{background:white;border:1px solid #d9dee7;border-radius:12px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.03)}label{display:block;font-weight:600;margin:10px 0 6px}input,select,textarea,button{box-sizing:border-box;width:100%;font:inherit}input,select,textarea{padding:10px;border:1px solid #b8c0cc;border-radius:8px;background:white}textarea{min-height:310px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}button{margin-top:12px;padding:11px;border:0;border-radius:8px;background:#111827;color:white;cursor:pointer}.row{display:flex;gap:10px}.row>*{flex:1}pre{white-space:pre-wrap;word-break:break-word;min-height:310px;background:#0d1117;color:#e6edf3;padding:14px;border-radius:8px;overflow:auto}.ok{color:#067647}.bad{color:#b42318}@media(max-width:800px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<h1>QMT HTTP Bridge API Tester</h1>
+<p class="muted">支持 Lite（POST /api）和 Full（POST /api/v1/&lt;operation&gt;）。Token 仅保存在当前页面内存中。</p>
+<div class="grid">
+<section class="card">
+<div class="row"><div><label>版本</label><select id="edition"><option value="lite">Lite</option><option value="full">Full</option></select></div><div><label>服务地址</label><input id="base" value="http://127.0.0.1:18765"></div></div>
+<label>Token</label><input id="token" type="password" autocomplete="off" placeholder="粘贴 QMT 控制台输出的 Token">
+<div class="row"><div><label>Operation</label><select id="op"><option>health</option><option>account</option><option>positions</option><option>orders</option><option>fills</option><option>quotes</option><option>history</option><option>runtime</option><option>events</option><option>audit</option><option>submit_limit</option><option>cancel</option></select></div><div><label>超时(ms)</label><input id="timeout" type="number" value="8000"></div></div>
+<label>Payload / data</label>
+<textarea id="payload">{
+  "account_id": "YOUR_ACCOUNT_ID",
+  "account_type": "STOCK"
+}</textarea>
+<button id="send">发送请求</button>
+<button id="health">GET /health</button>
+</section>
+<section class="card"><div id="status" class="muted">尚未请求</div><pre id="out"></pre></section>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+function pretty(x){try{return JSON.stringify(x,null,2)}catch(e){return String(x)}}
+async function send(getHealth=false){
+  const base=$('base').value.replace(/\/$/,'');
+  const token=$('token').value;
+  const edition=$('edition').value;
+  const op=$('op').value;
+  $('status').textContent='请求中…';$('status').className='muted';$('out').textContent='';
+  try{
+    let url,opts;
+    if(getHealth){url=base+'/health';opts={method:'GET',headers:{'X-QMT-Token':token}}}
+    else{
+      const data=JSON.parse($('payload').value||'{}');
+      if(edition==='lite'){
+        url=base+'/api';opts={method:'POST',headers:{'Content-Type':'application/json','X-QMT-Token':token},body:JSON.stringify({op:op,data:data,timeout:Number($('timeout').value||8000)/1000})};
+      }else{
+        url=base+'/api/v1/'+op;opts={method:'POST',headers:{'Content-Type':'application/json','X-QMT-Token':token,'X-Idempotency-Key':crypto.randomUUID?crypto.randomUUID():String(Date.now())},body:JSON.stringify({protocol_version:'1.0',request_id:String(Date.now()),operation:op,payload:data,timeout_ms:Number($('timeout').value||8000)})};
+      }
+    }
+    const t0=performance.now();const r=await fetch(url,opts);const text=await r.text();let body;try{body=JSON.parse(text)}catch(e){body=text}
+    $('status').textContent=`HTTP ${r.status} · ${(performance.now()-t0).toFixed(0)} ms`;$('status').className=r.ok?'ok':'bad';$('out').textContent=pretty(body);
+  }catch(e){$('status').textContent='请求失败';$('status').className='bad';$('out').textContent=String(e&&e.stack||e)}
+}
+$('send').onclick=()=>send(false);$('health').onclick=()=>send(true);
+$('op').onchange=()=>{const op=$('op').value;const samples={health:{},runtime:{},events:{limit:50},audit:{limit:50},quotes:{symbols:['600000.SH','000001.SZ']},history:{symbols:['600000.SH'],fields:['open','high','low','close','volume'],period:'1d',count:20,dividend_type:'front'},submit_limit:{account_id:'YOUR_ACCOUNT_ID',account_type:'STOCK',symbol:'600000.SH',side:'BUY',qty:100,limit_price:1.00,strategy_name:'HTTP_TEST'},cancel:{account_id:'YOUR_ACCOUNT_ID',account_type:'STOCK',broker_order_id:'ORDER_ID'}};$('payload').value=pretty(samples[op]||{account_id:'YOUR_ACCOUNT_ID',account_type:'STOCK'})};
+</script>
+</body>
+</html>
